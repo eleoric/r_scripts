@@ -1,0 +1,41 @@
+# install and load libraries
+install.packages("arules")
+install.packages("arulesViz")
+install.packages("datasets")
+library(arules)
+library(arulesViz)
+library(datasets)
+
+# get raw data from ODBC connection
+library(RODBC)
+channel <- odbcConnect(dsn = "00_Teradata_Prod_64bit", uid = "liaoer", pwd = "")
+Query1<- ""
+Data1 <- sqlQuery(channel = channel, query = Query1)
+odbcClose(channel)
+
+# load dataset
+data <- read.csv("Groceries.csv", header = TRUE, stringAsFactors = FALSE)
+data(Groceries) #inspect data
+
+# create item frequency plot
+itemFrequencyPlot(Groceries, topN = 20, type = "absolute")
+
+# get the rules
+# supp is support/frequency of appearance in dataset
+# confidence = 0.8 means rules estimate greater than 80% for new rules
+rules <- apriori(Groceries, parameter = list(supp = 0.001, conf = 0.8))
+
+#limit entries to 3
+rules <- apriori(Groceries, parameter = list(supp = 0.001, conf = 0.8, maxlen = 3))
+
+# show top 5 rules, but only 2 digits
+rules <- sort(rules, by = "confidence", decreasing = TRUE)
+options(digits = 2)
+inspect(rules[1:5])
+
+# target items on the rhs or lhs
+rules <- apriori(Groceries, parameter = list(supp = 0.001, conf = 0.8, maxlen = 2),
+                 appearance = list(default = "rhs", lhs = "whole milk"),
+                 control = list(verbose = F))
+rules <- sort(rules, decreasing = TRUE, by = "confidence")
+inspect(rules[1:5])
