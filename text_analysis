@@ -1,0 +1,386 @@
+data <- read.csv("comments of AS.csv", header=FALSE, stringsAsFactors = FALSE)
+
+data$ID <- seq.int(nrow(data))
+
+colnames(data)[2] <- "doc_id"
+colnames(data)[1] <- "text"
+
+data <- data[, c(2, 1)]
+
+data <- na.omit(data)
+
+library(tm)
+library(SnowballC)
+library(ggplot2)
+library(wordcloud)
+library(topicmodels)
+library(tidyverse)      
+library(stringr)        
+library(tidytext)       
+library(tibble)
+library(dplyr)
+library(tidyr)
+#library(graph)
+#library(grid)
+library(Rgraphviz)
+library(Rmpfr)
+
+mycorpus <- Corpus(DataframeSource(data))
+
+docs <- mycorpus
+
+#create the toSpace content transformer
+toSpace <- content_transformer(function(x, pattern) {return (gsub(pattern, " ", x))})
+
+docs <- tm_map(docs, toSpace, "-")
+docs <- tm_map(docs, toSpace, ":")
+docs <- tm_map(docs, toSpace, "'")
+docs <- tm_map(docs, toSpace, "'")
+docs <- tm_map(docs, toSpace, " -")
+
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, removeNumbers)
+
+docs <- tm_map(docs, content_transformer(tolower))
+docs <- tm_map(docs, removeWords, stopwords("english"))
+
+#inspect a document as a check
+writeLines(as.character(docs[[70]]))
+
+#fix up 1) differences between us and aussie english 2) general errors
+#docs <- tm_map(docs, content_transformer(gsub),pattern = "strategi", replacement = "strateg")
+#docs <- tm_map(docs, content_transformer(gsub),pattern = "organis", replacement = "organ")
+#docs <- tm_map(docs, content_transformer(gsub),pattern = "andgovern", replacement = "govern")
+#docs <- tm_map(docs, content_transformer(gsub),pattern = "inenterpris", replacement = "enterpris")
+#docs <- tm_map(docs, content_transformer(gsub),pattern = "team-", replacement = "team")
+
+#define and eliminate all custom stopwords
+
+myStopwords <- c("also","get", "can", "one", "use", "meet", "will", "set", "don", "rde", "t")
+
+docs <- tm_map(docs, removeWords, myStopwords)
+
+docs <- tm_map(docs, stemDocument)
+
+#---------------create document term matrix ---------------
+
+docs <- tm_map(docs, stripWhitespace)  
+
+dtm <- DocumentTermMatrix(docs)
+
+dtm
+
+freq <- colSums(as.matrix(dtm))
+
+ord <- order(freq,decreasing=TRUE)
+freq[head(ord)]
+
+findFreqTerms(dtm,lowfreq=50)
+
+---------------#plot of frequent terms -------------
+
+plot(dtm, terms=findFreqTerms(dtm, lowfreq = 20)[1:25], corThreshold = 0.2)
+
+#--- see associated words
+#findAssocs(dtm, "member", corlimit=0.30)
+#findAssocs(dtm, "staff", corlimit=0.50)
+#findAssocs(dtm, "manager", corlimit=0.50)
+
+#------------ Bar plot of most frequent words ------------------
+
+wf <- data.frame(word=names(freq), freq=freq)
+p <- ggplot(subset(wf, freq>30), aes(word, freq))
+p <- p + geom_bar(stat="identity")
+p <- p + theme(axis.text.x=element_text(angle=45, hjust=1))
+p
+
+
+#--------- Ye old'e wordcloud ----------------------------------
+
+wordcloud(names(freq), freq, min.freq=30,colors=brewer.pal(3,"Dark2"))
+
+wordcloud(names(freq), freq, max.words=100,colors=brewer.pal(6,"Dark2"))
+
+
+
+#---------------------------------------------------------------------------------------------------
+#LDA is a technique that facilitates the automatic discovery of themes in a collection of documents
+#---------------------------------------------------------------------------------------------------
+
+
+#------------ choose number of topics ----------------------
+
+
+harmonicMean <- function(logLikelihoods, precision=2000L) {
+  library("Rmpfr")
+  llMed <- median(logLikelihoods)
+  as.double(llMed - log(mean(exp(-mpfr(logLikelihoods,
+                                       prec = precision) + llMed))))
+}
+
+# The log-likelihood values are then determined by first fitting the model using for example
+k = 20
+burnin = 100
+iter = 1000
+keep = 50
+
+raw.sum=apply(dtm,1,FUN=sum) #sum by raw each raw of the table
+dtm=dtm[raw.sum!=0,] #remove blank lines (essentially)
+
+# fit LDA model 
+fitted <- LDA(dtm, k = k, method = "Gibbs",control = list(burnin = burnin, iter = iter, keep = keep) )
+
+# where keep indicates that every keep iteration the log-likelihood is evaluated and stored. 
+#This returns all log-likelihood values including burnin, i.e., these need to be omitted 
+#before calculating the harmonic mean:
+
+logLiks <- fitted@logLiks[-c(1:(burnin/keep))]
+
+# assuming that burnin is a multiple of keep and
+
+harmonicMean(logLiks)
+
+# generate numerous topic models with different numbers of topics
+sequ <- seq(2, 20, 1) # in this case a sequence of numbers from 1 to 20, by ones.
+fitted_many <- lapply(sequ, function(k) LDA(dtm[21:30,], k = k, method = "Gibbs",control = list(burnin = burnin, iter = iter, keep = keep) ))
+
+# extract logliks from each topic
+logLiks_many <- lapply(fitted_many, function(L)  L@logLiks[-c(1:(burnin/keep))])
+
+# compute harmonic means
+hm_many <- sapply(logLiks_many, function(h) harmonicMean(h))
+
+# inspect
+plot(sequ, hm_many, type = "l")
+
+# compute optimum number of topics
+sequ[which.max(hm_many)]
+
+
+
+#-------------- Run the LDA with number of topics chosen ----------------------------
+
+#load topic models library
+#install.packages('topicmodels')
+
+
+#Set parameters for Gibbs sampling
+burnin <- 2000
+iter <- 5000
+thin <- 100
+seed <- list(2003,5,63,100001,765)
+nstart <- 5
+best <- TRUE
+
+#Number of topics
+k <- 5
+
+
+#Run LDA using Gibbs sampling
+ldaOut <-LDA(dtm,k, method="Gibbs", control=list(nstart=nstart, seed = seed, best=best, burnin = burnin, iter = iter, thin=thin))
+
+#top n terms in each topic
+ldaOut.terms <- as.matrix(terms(ldaOut,10))
+ldaOut.terms
+
+#probabilities associated with each topic assignment
+topicProbabilities <- as.data.frame(ldaOut@gamma)
+topicProbabilities
+
+
+#---------- most probable topics in each thingy ----------------
+
+gammaDF <- as.data.frame(ldaOut@gamma) 
+names(gammaDF) <- c(1:k)
+# inspect...
+gammaDF
+
+# Now for each doc, find just the top-ranked topic   
+toptopics <- as.data.frame(cbind(document = row.names(gammaDF), 
+                                 topic = apply(gammaDF,1,function(x) names(gammaDF)[which(x==max(x))])))
+# inspect...
+toptopics 
+
+#output and attach to original data
+
+x <- as.data.frame(as.numeric(dtm$dimnames$Docs))
+
+done <- as.data.frame(cbind(x$`as.numeric(dtm$dimnames$Docs)`,toptopics$topic))
+
+#df$ID <- seq.int(nrow(df))
+
+names(done)[1] <- "doc_id"
+names(done)[2] <- "topics"
+
+finish <- merge(data, done, by = "doc_id")
+
+finish$topics <- vapply(finish$topics, paste, collapse = ", ", character(1L))
+
+write.csv(finish, file = "text anlaysis of staff survey.csv") #, sep = "/t")
+
+
+
+
+#--------------------------------------------------------------------------------
+#----------------- Sentiment Analysis by word------------------------------------
+#--------------------------------------------------------------------------------
+
+sent <- read.csv("Verbatim comments by area.csv", header=TRUE, stringsAsFactors = FALSE) #, sep=",", stringsAsFactors = FALSE, na.strings="NA")
+
+tibble <- as.tibble(sent)
+
+word_tb <- tibble %>% unnest_tokens(word, Comment) 
+
+
+word_tb %>%
+  group_by(BU) %>%
+  mutate(word_count = 1:n(),
+         index = word_count %/% 50 + 1) %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(BU, index = index , sentiment) %>%
+  ungroup() %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative) %>%
+  ggplot(aes(index, sentiment, fill = sentiment > 0)) +
+  geom_bar(alpha = 0.5, stat = "identity", show.legend = FALSE) +
+  facet_wrap(~ BU, ncol = 2, scales = "free_x")
+
+
+
+#--------------------------sentences -------------------------------------
+
+
+snet_tb <- tibble %>% unnest_tokens(sentence, Comment, token = "sentences") 
+
+sent_tb <- snet_tb %>%
+  group_by(BU) %>%
+  mutate(sentence_num = 1:n(),
+         index = round(sentence_num / n(), 2)) %>%
+  unnest_tokens(word, sentence) %>%
+  inner_join(get_sentiments("afinn")) %>%  
+  group_by(BU, index) %>%
+  summarise(sentiment = sum(score, na.rm = TRUE)) %>%
+  arrange(desc(sentiment))
+
+ggplot(sent_tb , aes(index, sentiment, fill = sentiment > 0)) +
+  geom_bar(alpha = 0.5, stat = "identity", show.legend = FALSE) +
+  facet_wrap(~ BU, ncol = 2, scales = "free_x")
+
+
+# --------------------- alternative plot ------------
+ggplot(sent_tb, aes(index, factor(BU, levels = sort(unique(BU), decreasing = TRUE)), fill = sentiment)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2() +
+  scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  labs(x = "Sentiment", y = "BU") +
+  ggtitle("Sentiment of Business Units",
+          subtitle = "Summary of the net sentiment score for each BU") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "top")
+
+
+#---- top words in each sentiment -----
+
+bing_word_counts <- word_tb %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ggplot(aes(reorder(word, n), n, fill = sentiment)) +
+  geom_bar(alpha = 0.8, stat = "identity", show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment", x = NULL) +
+  coord_flip()
+
+
+#------------- PLots -------------------------------------------------
+
+# plot of sentiment by business unit
+ggplot(sent_tb, aes(x = BU, y = sentiment, color = BU)) + geom_boxplot() # draw a boxplot for each BU
+
+# overall sentence scores 
+qplot(factor(sentiment), data=sent_tb, geom="bar", fill=factor(sentiment))+xlab("Sentiment Score") + 
+  ylab("Frequency") + ggtitle("Customer Sentiment Scores")
+
+# overall word scores 
+word_tb2 <- word_tb %>%
+  group_by(BU) %>%
+  mutate(word_count = 1:n(),
+         index = word_count %/% 50 + 1) %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(BU, index = index , sentiment) %>%
+  ungroup() %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+qplot(factor(sentiment), data=word_tb2, geom="bar", fill=factor(sentiment))+xlab("Sentiment Score") + 
+  ylab("Frequency") + ggtitle("Sentiment Scores")
+
+
+#overall feelings
+
+word_tb %>%
+  right_join(get_sentiments("nrc")) %>%
+  filter(!is.na(sentiment)) %>%
+  count(sentiment, sort = TRUE)
+
+aggregate(word_tb2$sentiment, by=list(Category=word_tb2$BU), FUN=sum)
+
+
+word_tb3 <- word_tb %>%
+  group_by(BU) %>%
+  mutate(word_count = 1:n(),
+         index = word_count %/% 50 + 1) %>%
+  inner_join(get_sentiments("nrc")) %>%
+  count(BU, index = index , sentiment) %>%
+  ungroup() %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+res <- word_tb3 %>% group_by(BU, sentiment) %>% summarise(Freq=n())
+
+
+
+#------------------- plotting again ---------------------------------
+
+temp <- aggregate(. ~ BU, word_tb3, sum)
+
+temp$index <- NULL
+
+library(reshape2)
+melted <- melt(temp,id.vars="BU")
+
+
+ggplot(melted,aes(x=variable,y=value,fill=factor(BU)))+
+  geom_bar(stat="identity",position="dodge") 
+
+
+
+#------------------------ needs to be weighted? ----------------------------
+
+temp <- aggregate(cbind(count = BU) ~ BU, data = tibble, FUN = function(x){NROW(x)})
+
+library(sqldf)
+
+df3 <- sqldf(
+  '
+  Select a.*, b.count as total_n from melted a
+  left join temp b on a.BU = b.BU
+  ' )
+
+df3$norm <- with(df3, value / total_n)
+
+#--------------- normalised (proportionately) plot --------------
+
+ggplot(df3 ,aes(x=variable,y=norm,fill=factor(BU)))+
+  geom_bar(stat="identity",position="dodge") 
+# + scale_fill_brewer(palette = "Set1")
+
+
