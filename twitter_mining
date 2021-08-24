@@ -1,0 +1,107 @@
+install.packages("twitteR")
+install.packages("ROAuth")
+install.packages("tm")
+install.packages("NLP")
+install.packages("stopwords")
+install.packages("wordcloud")
+install.packages("RColorBrewer")
+
+library(twitteR)
+library(ROAuth)
+library(NLP)
+library(tm)
+library(stopwords)
+library(RColorBrewer)
+library(wordcloud)
+
+########## Twitter Credentials ##########
+API_Key <- "vPAKagq063JlWKWS24WQndMBR"
+API_Secret <- "LhXlyzkOTU6AKG9c1IxNR39sDsOg5YEebJyoVL1hWhI3s4jpQ5"
+Access_Token <- "821859868046815232-YQwbFRuOzQHENWcQQHOM7gm1sQgaHZ9"
+Access_Secret <- "37fvuHkT9lrWkC0mMGG3IoPcP24498QIP3vtoXVaxLfAr"
+setup_twitter_oauth(API_Key, API_Secret, Access_Token, Access_Secret) #twitter authentication
+
+
+
+########## Text Mining Method  ##########
+#tweets <- userTimeline("hindawi", n = 3200) # retrieve from user's profile
+tweets <- searchTwitter("hindawi", n = 2000, lang = "en") # retrieve from search, API only allows 525
+
+text = sapply(tweets, function(x) x$getText()) # extract raw text only
+
+
+
+########## Text Cleaning  ##########
+StopWords <- stopwords(language = "en", source = "smart") # package of common english words
+#StopWords <- c("about","have","this","more","into","able","very","your","https") # build own stopwords
+
+myCorpus <- Corpus(VectorSource(text)) #build a corpus
+myCorpus <- tm_map(myCorpus, removeWords, StopWords)
+# myCorpus <- tm_map(myCorpus, stemDocument) # stemming words ie ing, es, s etc
+# myCorpus <- tm_map(myCorpus, stringWhitespace) # if stemmed, remove white spaces
+
+tdm = TermDocumentMatrix(myCorpus, control = list(removePunctuation = TRUE, 
+                                                  removeNumbers = TRUE, tolower = F, wordLengths = c(4, Inf)))
+
+
+
+########## Word Frequency ##########
+m <- as.matrix(tdm)
+v <- sort(rowSums(m), decreasing=TRUE)
+d <- data.frame(word = names(v), freq=v)
+
+(freq.terms <- findFreqTerms(tdm, lowfreq = 10)) # look at most frequent words, () means to display output
+length(freq.terms) # counts number in matrix
+barplot(d[1:10,]$freq, las = 2, names.arg = d[1:10,]$word,
+        col ="lightblue", main ="Most frequent words", 
+        ylab = "Word frequencies")
+# write.csv(m, file="FrequentWordsMatrix.csv")
+
+
+
+########## Word Associations ##########
+findAssocs(tdm, c("Hindawi"), corlimit=0.5) # specify a correlation threshold, 1 means always appear together
+
+
+
+########## Word Cloud ##########
+m <- as.matrix(tdm)
+word.freq <- sort(rowSums(m), decreasing = T)
+pal <- brewer.pal(9, "RdYlBu") #BuGn, YlGnBu, RdYlBu, spectral
+
+wordcloud(words = names(word.freq), freq = word.freq, min.freq = 5, scale=c(5,0.3), random.order = F, colors = pal)#, max.words = 30) #plot
+
+
+
+########## Word Dendrogram ##########
+q <- removeSparseTerms(tdm, 0.95)
+
+library(cluster)
+fit <- hclust(dist(q))
+plot(fit, hang=-1)
+
+clusterCut <- cutree(fit, 5) # cut down trees
+plot(clusterCut, hang=-1)
+
+
+
+
+
+########## N-gramming ##########
+install.packages("dplyr")
+library(dplry)
+o = count(bigram, sort = TRUE)
+
+(bigram_tf_idf <- series %>%
+    count(tdm, bigram, sort = TRUE) %>%
+    bind_tf_idf(bigram, tdm, n) %>%
+    arrange(desc(tf_idf))
+)
+
+
+#k-means clustering
+install.packages("fpc")
+library(fpc)
+d <- dist(t(q), method="euclidian")   
+kfit <- kmeans(d, 2)   
+clusplot(as.matrix(d), kfit$cluster, color=T, shade=T, labels=2, lines=0)  
