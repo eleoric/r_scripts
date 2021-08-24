@@ -1,0 +1,20 @@
+# install and load libraries
+install.packages("sqldf")
+install.packages("rpart.plot")
+library(sqldf)
+library(rpart.plot)
+
+# get data
+
+# convert to data frame
+Data1 <- as.data.frame(Data1)
+
+# grow tree
+fit <- rpart(Products ~ Tenure + CLV_Age, method="class", data=Data1)
+
+printcp(fit) #display results
+plotcp(fit) #visualise cross-validation results
+summary(fit) #detailed summary of splits
+
+# plot tree
+rpart.plot(fit, extra=104, branch.lty=3, shadow.col="gray", nn=TRUE, uniform = TRUE, main="Decision Tree")
