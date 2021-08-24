@@ -1,0 +1,33 @@
+# install and load libraries
+install.packages("curl")
+install.packages("XML")
+install.packages("plyr")
+library(curl)
+library(XML)
+library(plyr)
+
+query <- "CBA Branch Australia"
+key = "abcdefg"
+
+#write own URL function
+url <- function(address, return.call = "xml"){
+  root <- "https://maps.googleapis.com/maps/api/place/textsearch/"
+  u <- paste(root, return.call, "?query=", query, "&key=", key, sep = "")
+  return(URLencode(u))
+}
+
+u <- url(query)
+u #inspect variable
+
+download.file(u, destfile = "data.xml")
+
+#parse data from XML file and use <> as nodes for delimeters
+doc <- xmlTreeParse("data.xml", useInternalNodes = TRUE)
+doc #inspect variable
+
+#Muffin <- ldply(xmlToList(doc), function(x) {data.frame(x[!names(x)=="author"])})
+
+#change xml file to list and store as data frame
+test <- ldply(xmloList(doc), data.frame)
+
+write.csv(test, "CBA.csv")
