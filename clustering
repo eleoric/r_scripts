@@ -1,0 +1,50 @@
+# install and load libraries
+install.packages("cluster")
+install.packages("tsne")
+library(cluster)
+library(tsne)
+
+# load dataset
+data <- read.csv("Groceries.csv", header = TRUE, stringAsFactors = FALSE)
+data(Groceries) #inspect data
+
+newdata <- data
+
+rownames(newdata) <- newdata[,1] #assign row names in column 1
+x <- (newdata[, 2:36]) #data in columns 2 to 36
+
+x <- scale(x) #scale data for magnitude issues
+
+pca.cor <- prcomp(x) #PCA using correl matrix
+biplot(pca.cor) #PCA plot. Look for negative correlations for arrows in opposing directions. Length denotes strength
+
+#--------- Determine number of clusters ---------
+wss <- (nrow(x)-1)*sum(apply(x,2,var))
+for (i in 2:20) wss[i] <- sum(kmeans(x, centers=i)$withinss)
+plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="within groups sum of squares")
+#look for inflection point, find smallest number of clusters that explains variability without overfitting
+
+#--------- K-means Cluster Analysis ---------
+fit <- kmeans(x, 9, nstart = 25) #cluster x with n clusters. can also use fit <- pam(x, 10)
+aggregate(x, by=list(fit$cluster),FUN=mean) #get cluster means
+mydata <- data.frame(data, fit$cluster) #append cluster assignment
+kmeans <- aggregate(data, by=list(fit$cluster),FUN=mean)
+
+clusplot(mydata, fit$cluster, color=TRUE, shade=TRUE, labels2, lines=0)
+
+table(fit$cluster) #items in each cluster
+
+#--------- 3D plot ---------
+install.packages("rgl")
+library(rgl)
+pc <- prcomp(newdata)
+pc3d <- cbind(pca.cor$x[,1], pca.cor$x[,2], pca.cor$x[,3])
+plot3d(pc3d, col=fit$cluster, type="s", size=1, scale=0.2)
+
+#--------- Correlation plot ---------
+install.packages("corrplot")
+library(corrplot)
+cprr <- cor(x)
+corrplot(corr, method = "square", tl.col="black", tl.cex=0.5)
+
+write.csv(mydata, file = "MyData.csv") #write to file
